@@ -29,6 +29,11 @@ app.add_middleware(
 
 _WIDGET = Path(__file__).parent / "static" / "widget.js"
 
+@app.get("/", include_in_schema=False)
+async def health():
+    return {"status": "ok", "service": "SupportDesk AI"}
+
+
 @app.get("/widget.js", include_in_schema=False)
 async def serve_widget():
     if not _WIDGET.exists():

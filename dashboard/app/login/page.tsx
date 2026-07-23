@@ -4,7 +4,7 @@ import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 
 export default function LoginPage() {
-  const [apiUrl, setApiUrl] = useState('http://localhost:8000');
+  const [apiUrl, setApiUrl] = useState('https://backend-production-9bac5.up.railway.app');
   const [apiKey, setApiKey] = useState('');
   const [error, setError]   = useState('');
   const [loading, setLoading] = useState(false);
