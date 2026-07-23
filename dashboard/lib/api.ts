@@ -27,6 +27,11 @@ export const api = {
   put:    (path: string, body: unknown) => request(path, { method: 'PUT',  body: JSON.stringify(body) }),
   delete: (path: string)                => request(path, { method: 'DELETE' }),
 
+  workflows: {
+    graph: () => request('/workflows/graph'),
+    stats: () => request('/workflows/stats'),
+  },
+
   automation: {
     templates: ()                              => request('/automation/templates'),
     run:       (template_id: string, user_input: string) =>

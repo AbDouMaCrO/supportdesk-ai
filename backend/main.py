@@ -439,6 +439,67 @@ async def get_run(run_id: str, biz: dict = Depends(require_admin)):
     return res.data[0]
 
 
+# ── Workflows / LangGraph ─────────────────────────────────────────────────
+
+@app.get("/workflows/graph")
+async def get_workflow_graph(_: dict = Depends(require_admin)):
+    return {
+        "nodes": [
+            {"id": "retrieve",          "label": "Retrieve Context", "type": "rag",      "description": "FAISS vector search on KB"},
+            {"id": "check_escalation",  "label": "Check Escalation", "type": "decision", "description": "Keyword escalation detection"},
+            {"id": "generate",          "label": "Generate Response", "type": "llm",      "description": "LLM via OpenRouter"},
+            {"id": "__end__",           "label": "End",              "type": "end",       "description": "Workflow complete"},
+        ],
+        "edges": [
+            {"from": "retrieve",         "to": "check_escalation"},
+            {"from": "check_escalation", "to": "generate"},
+            {"from": "generate",         "to": "__end__"},
+        ],
+        "state_schema": ["messages", "user_input", "retrieved_context", "response", "escalate", "system_prompt", "business_id", "session_id"],
+    }
+
+
+@app.get("/workflows/stats")
+async def get_workflow_stats(biz: dict = Depends(require_admin)):
+    from agent import _index_cache
+    biz_id = biz["id"]
+    db = get_db()
+
+    convs = (
+        db.table("conversations")
+        .select("id, session_id, messages, escalated, created_at")
+        .eq("business_id", biz_id)
+        .order("created_at", desc=True)
+        .limit(50)
+        .execute()
+        .data or []
+    )
+    kb_res = db.table("kb_files").select("id, filename").eq("business_id", biz_id).execute().data or []
+
+    total_runs = sum(max(len(c.get("messages") or [], 0) // 2, 0) for c in convs)
+    escalated  = sum(1 for c in convs if c.get("escalated"))
+
+    return {
+        "total_workflow_runs":  total_runs,
+        "total_conversations":  len(convs),
+        "escalated_count":      escalated,
+        "escalation_rate":      round(escalated / len(convs) * 100, 1) if convs else 0,
+        "rag_index_loaded":     biz_id in _index_cache,
+        "kb_files":             len(kb_res),
+        "kb_filenames":         [f["filename"] for f in kb_res],
+        "recent_traces": [
+            {
+                "session_id":       c["session_id"],
+                "message_count":    max(len(c.get("messages") or [], 0) // 2, 0),
+                "escalated":        c.get("escalated", False),
+                "created_at":       c["created_at"],
+                "nodes_traversed":  ["retrieve", "check_escalation", "generate"],
+            }
+            for c in convs[:10]
+        ],
+    }
+
+
 # ── Analytics (admin) ──────────────────────────────────────────────────────
 
 @app.get("/analytics")
