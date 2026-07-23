@@ -7,8 +7,8 @@ from typing import Annotated, TypedDict
 
 import os
 
-from langchain_community.embeddings import FastEmbedEmbeddings
 from langchain_community.vectorstores import FAISS
+from langchain_core.embeddings import Embeddings
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 from langchain_text_splitters import RecursiveCharacterTextSplitter
@@ -26,6 +26,28 @@ ESCALATION_KEYWORDS = [
 
 _index_cache: dict[str, FAISS] = {}
 _graph = None
+_embed_model = None
+
+
+class _FastEmbedDirect(Embeddings):
+    """Bypass the broken langchain FastEmbedEmbeddings pydantic wrapper."""
+
+    def __init__(self):
+        from fastembed import TextEmbedding
+        self._fe = TextEmbedding("BAAI/bge-small-en-v1.5")
+
+    def embed_documents(self, texts: list[str]) -> list[list[float]]:
+        return [v.tolist() for v in self._fe.embed(texts)]
+
+    def embed_query(self, text: str) -> list[float]:
+        return next(self._fe.embed([text])).tolist()
+
+
+def _get_embeddings() -> Embeddings:
+    global _embed_model
+    if _embed_model is None:
+        _embed_model = _FastEmbedDirect()
+    return _embed_model
 
 
 class SupportState(TypedDict):
@@ -45,7 +67,7 @@ def build_index(business_id: str, texts: list[str]) -> None:
         return
     splitter = RecursiveCharacterTextSplitter(chunk_size=200, chunk_overlap=20)
     docs = splitter.create_documents(texts)
-    _index_cache[business_id] = FAISS.from_documents(docs, FastEmbedEmbeddings())
+    _index_cache[business_id] = FAISS.from_documents(docs, _get_embeddings())
 
 
 def has_index(business_id: str) -> bool:

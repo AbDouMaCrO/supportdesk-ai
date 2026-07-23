@@ -124,10 +124,13 @@ async def chat(req: ChatRequest, biz: dict = Depends(require_business)):
 
     # Lazy-load FAISS index from DB on first chat for this business
     if not has_index(biz_id):
-        kb_res = db.table("kb_files").select("content").eq("business_id", biz_id).execute()
-        texts = [r["content"] for r in kb_res.data] if kb_res.data else []
-        if texts:
-            build_index(biz_id, texts)
+        try:
+            kb_res = db.table("kb_files").select("content").eq("business_id", biz_id).execute()
+            texts = [r["content"] for r in kb_res.data] if kb_res.data else []
+            if texts:
+                build_index(biz_id, texts)
+        except Exception:
+            pass  # KB unavailable — chat still works without context
 
     result = run_agent(
         business_id=biz_id,
