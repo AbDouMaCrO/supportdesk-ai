@@ -42,7 +42,7 @@ class _FastEmbedDirect:
         return next(self._fe.embed([text])).tolist()
 
 
-def _get_embeddings() -> Embeddings:
+def _get_embeddings():
     global _embed_model
     if _embed_model is None:
         _embed_model = _FastEmbedDirect()
