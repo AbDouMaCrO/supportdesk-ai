@@ -8,12 +8,13 @@ import uuid
 from pathlib import Path
 
 from dotenv import load_dotenv
-from fastapi import Depends, FastAPI, File, Header, HTTPException, UploadFile
+from fastapi import BackgroundTasks, Depends, FastAPI, File, Header, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from agent import build_index, has_index, run_agent
+from automation import TEMPLATES, run_crew
 from db import get_db
 
 load_dotenv()
@@ -343,6 +344,95 @@ async def update_settings(body: SettingsUpdate, biz: dict = Depends(require_admi
         raise HTTPException(400, "Nothing to update")
     db = get_db()
     res = db.table("businesses").update(patch).eq("id", biz["id"]).execute()
+    return res.data[0]
+
+
+# ── Analytics (admin) ──────────────────────────────────────────────────────
+
+# ── Automation / Crews ────────────────────────────────────────────────────
+
+@app.get("/automation/templates")
+async def list_templates(_: dict = Depends(require_admin)):
+    return [
+        {
+            "id": tid,
+            "name": t["name"],
+            "description": t["description"],
+            "icon": t["icon"],
+            "input_label": t["input_label"],
+        }
+        for tid, t in TEMPLATES.items()
+    ]
+
+
+class RunRequest(BaseModel):
+    template_id: str
+    user_input: str
+
+
+def _execute_run(run_id: str, template_id: str, user_input: str):
+    db = get_db()
+    try:
+        outputs = run_crew(template_id, user_input)
+        db.table("automation_runs").update(
+            {"status": "completed", "result": outputs}
+        ).eq("id", run_id).execute()
+    except Exception as exc:
+        db.table("automation_runs").update(
+            {"status": "failed", "error": str(exc)}
+        ).eq("id", run_id).execute()
+
+
+@app.post("/automation/run", status_code=202)
+async def start_run(
+    req: RunRequest,
+    bg: BackgroundTasks,
+    biz: dict = Depends(require_admin),
+):
+    if req.template_id not in TEMPLATES:
+        raise HTTPException(400, f"Unknown template: {req.template_id}")
+
+    db = get_db()
+    res = db.table("automation_runs").insert({
+        "business_id": biz["id"],
+        "template_id": req.template_id,
+        "template_name": TEMPLATES[req.template_id]["name"],
+        "user_input": req.user_input,
+        "status": "running",
+    }).execute()
+    run_id = res.data[0]["id"]
+
+    bg.add_task(_execute_run, run_id, req.template_id, req.user_input)
+    return {"run_id": run_id, "status": "running"}
+
+
+@app.get("/automation/runs")
+async def list_runs(biz: dict = Depends(require_admin)):
+    db = get_db()
+    res = (
+        db.table("automation_runs")
+        .select("id, template_id, template_name, user_input, status, created_at")
+        .eq("business_id", biz["id"])
+        .order("created_at", desc=True)
+        .limit(50)
+        .execute()
+    )
+    return res.data
+
+
+@app.get("/automation/runs/{run_id}")
+async def get_run(run_id: str, biz: dict = Depends(require_admin)):
+    db = get_db()
+    res = (
+        db.table("automation_runs")
+        .select("*")
+        .eq("id", run_id)
+        .eq("business_id", biz["id"])
+        .limit(1)
+        .execute()
+    )
+    if not res.data:
+        raise HTTPException(404, "Run not found")
     return res.data[0]
 
 
