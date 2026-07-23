@@ -113,8 +113,8 @@ def _get_llm() -> ChatOpenAI:
     return ChatOpenAI(
         model=os.environ.get("LLM_MODEL", "openai/gpt-4o-mini"),
         temperature=0.4,
-        openai_api_base=_OPENROUTER_BASE,
-        openai_api_key=os.environ["OPENROUTER_API_KEY"],
+        base_url=_OPENROUTER_BASE,
+        api_key=os.environ["OPENROUTER_API_KEY"],
     )
 
 

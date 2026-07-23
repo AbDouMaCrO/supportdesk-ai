@@ -8,7 +8,6 @@ from typing import Annotated, TypedDict
 import os
 
 from langchain_community.vectorstores import FAISS
-from langchain_core.embeddings import Embeddings
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 from langchain_text_splitters import RecursiveCharacterTextSplitter
@@ -29,7 +28,7 @@ _graph = None
 _embed_model = None
 
 
-class _FastEmbedDirect(Embeddings):
+class _FastEmbedDirect:
     """Bypass the broken langchain FastEmbedEmbeddings pydantic wrapper."""
 
     def __init__(self):
@@ -101,8 +100,8 @@ def _generate(state: SupportState) -> dict:
     llm = ChatOpenAI(
         model=_LLM_MODEL,
         temperature=0.2,
-        openai_api_base=_OPENROUTER_BASE,
-        openai_api_key=os.environ["OPENROUTER_API_KEY"],
+        base_url=_OPENROUTER_BASE,
+        api_key=os.environ["OPENROUTER_API_KEY"],
     )
     msgs = [
         SystemMessage(content=(
