@@ -33,9 +33,12 @@ export default function AutomationPage() {
   const [input, setInput]         = useState('');
   const [loading, setLoading]     = useState(false);
   const [error, setError]         = useState('');
+  const [fetchError, setFetchError] = useState('');
 
   useEffect(() => {
-    api.automation.templates().then(setTemplates).catch(() => {});
+    api.automation.templates()
+      .then(setTemplates)
+      .catch((e: any) => setFetchError(e.message ?? 'Failed to load templates'));
     api.automation.runs().then(setRuns).catch(() => {});
   }, []);
 
@@ -62,6 +65,13 @@ export default function AutomationPage() {
       {/* Template picker */}
       <section>
         <h2 className="text-sm font-semibold text-gray-600 uppercase tracking-wide mb-3">Choose a Crew</h2>
+        {fetchError && (
+          <div className="mb-4 bg-red-50 border border-red-200 rounded-xl p-4 text-sm text-red-700">
+            <span className="font-semibold">Could not load templates:</span> {fetchError}
+            <br />
+            <span className="text-xs mt-1 block">Try logging out and back in — your backend URL may be outdated.</span>
+          </div>
+        )}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {templates.map(t => (
             <button
