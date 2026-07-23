@@ -122,11 +122,11 @@ def _get_graph():
     if _graph is None:
         g = StateGraph(SupportState)
         g.add_node("retrieve", _retrieve)
-        g.add_node("escalate", _check_escalation)
+        g.add_node("check_escalation", _check_escalation)
         g.add_node("generate", _generate)
         g.set_entry_point("retrieve")
-        g.add_edge("retrieve", "escalate")
-        g.add_edge("escalate", "generate")
+        g.add_edge("retrieve", "check_escalation")
+        g.add_edge("check_escalation", "generate")
         g.add_edge("generate", END)
         _graph = g.compile()
     return _graph
