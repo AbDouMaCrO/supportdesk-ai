@@ -5,12 +5,18 @@ Adapted from agents/13-customer-support-agent/agent.py.
 
 from typing import Annotated, TypedDict
 
+import os
+
+from langchain_community.embeddings import FastEmbedEmbeddings
 from langchain_community.vectorstores import FAISS
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
-from langchain_openai import ChatOpenAI, OpenAIEmbeddings
+from langchain_openai import ChatOpenAI
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langgraph.graph import END, StateGraph
 from langgraph.graph.message import add_messages
+
+_OPENROUTER_BASE = "https://openrouter.ai/api/v1"
+_LLM_MODEL = os.environ.get("LLM_MODEL", "openai/gpt-4o-mini")
 
 ESCALATION_KEYWORDS = [
     "refund", "lawsuit", "furious", "fraud", "broken",
@@ -39,7 +45,7 @@ def build_index(business_id: str, texts: list[str]) -> None:
         return
     splitter = RecursiveCharacterTextSplitter(chunk_size=200, chunk_overlap=20)
     docs = splitter.create_documents(texts)
-    _index_cache[business_id] = FAISS.from_documents(docs, OpenAIEmbeddings())
+    _index_cache[business_id] = FAISS.from_documents(docs, FastEmbedEmbeddings())
 
 
 def has_index(business_id: str) -> bool:
@@ -70,7 +76,12 @@ def _generate(state: SupportState) -> dict:
             "messages": [],
         }
 
-    llm = ChatOpenAI(model="gpt-4o-mini", temperature=0.2)
+    llm = ChatOpenAI(
+        model=_LLM_MODEL,
+        temperature=0.2,
+        openai_api_base=_OPENROUTER_BASE,
+        openai_api_key=os.environ["OPENROUTER_API_KEY"],
+    )
     msgs = [
         SystemMessage(content=(
             f"{state['system_prompt']}\n\n"
