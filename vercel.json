@@ -1,0 +1,5 @@
+{
+  "buildCommand": "cd supportdesk-ai/dashboard && npm install && npm run build",
+  "outputDirectory": "supportdesk-ai/dashboard/.next",
+  "framework": "nextjs"
+}
