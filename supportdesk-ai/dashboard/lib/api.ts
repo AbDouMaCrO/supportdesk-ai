@@ -27,6 +27,19 @@ export const api = {
   put:    (path: string, body: unknown) => request(path, { method: 'PUT',  body: JSON.stringify(body) }),
   delete: (path: string)                => request(path, { method: 'DELETE' }),
 
+  workflows: {
+    graph: () => request('/workflows/graph'),
+    stats: () => request('/workflows/stats'),
+  },
+
+  automation: {
+    templates: ()                              => request('/automation/templates'),
+    run:       (template_id: string, user_input: string) =>
+      request('/automation/run', { method: 'POST', body: JSON.stringify({ template_id, user_input }) }),
+    runs:      ()                              => request('/automation/runs'),
+    getRun:    (id: string)                    => request(`/automation/runs/${id}`),
+  },
+
   uploadFile: async (path: string, file: File) => {
     const { apiKey, apiUrl } = cfg();
     const form = new FormData();

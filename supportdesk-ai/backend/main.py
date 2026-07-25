@@ -8,12 +8,13 @@ import uuid
 from pathlib import Path
 
 from dotenv import load_dotenv
-from fastapi import Depends, FastAPI, File, Header, HTTPException, UploadFile
+from fastapi import BackgroundTasks, Depends, FastAPI, File, Header, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from agent import build_index, has_index, run_agent
+from automation import TEMPLATES, run_crew
 from db import get_db
 
 load_dotenv()
@@ -28,6 +29,11 @@ app.add_middleware(
 )
 
 _WIDGET = Path(__file__).parent / "static" / "widget.js"
+
+@app.get("/", include_in_schema=False)
+async def health():
+    return {"status": "ok", "service": "SupportDesk AI"}
+
 
 @app.get("/widget.js", include_in_schema=False)
 async def serve_widget():
@@ -118,10 +124,13 @@ async def chat(req: ChatRequest, biz: dict = Depends(require_business)):
 
     # Lazy-load FAISS index from DB on first chat for this business
     if not has_index(biz_id):
-        kb_res = db.table("kb_files").select("content").eq("business_id", biz_id).execute()
-        texts = [r["content"] for r in kb_res.data] if kb_res.data else []
-        if texts:
-            build_index(biz_id, texts)
+        try:
+            kb_res = db.table("kb_files").select("content").eq("business_id", biz_id).execute()
+            texts = [r["content"] for r in kb_res.data] if kb_res.data else []
+            if texts:
+                build_index(biz_id, texts)
+        except Exception:
+            pass  # KB unavailable — chat still works without context
 
     result = run_agent(
         business_id=biz_id,
@@ -339,6 +348,183 @@ async def update_settings(body: SettingsUpdate, biz: dict = Depends(require_admi
     db = get_db()
     res = db.table("businesses").update(patch).eq("id", biz["id"]).execute()
     return res.data[0]
+
+
+# ── Analytics (admin) ──────────────────────────────────────────────────────
+
+# ── Automation / Crews ────────────────────────────────────────────────────
+
+@app.get("/automation/templates")
+async def list_templates(category: str | None = None, _: dict = Depends(require_admin)):
+    result = []
+    for tid, t in TEMPLATES.items():
+        cat = t.get("category", "General")
+        if category and category.lower() not in cat.lower():
+            continue
+        result.append({
+            "id": tid,
+            "name": t["name"],
+            "description": t["description"],
+            "icon": t["icon"],
+            "input_label": t["input_label"],
+            "category": cat,
+        })
+    return result
+
+
+@app.get("/automation/categories")
+async def list_categories(_: dict = Depends(require_admin)):
+    categories = {}
+    for tid, t in TEMPLATES.items():
+        cat = t.get("category", "General")
+        if cat not in categories:
+            categories[cat] = {
+                "name": cat,
+                "count": 0,
+                "templates": [],
+            }
+        categories[cat]["count"] += 1
+        categories[cat]["templates"].append({
+            "id": tid,
+            "name": t["name"],
+            "description": t["description"],
+            "icon": t["icon"],
+            "input_label": t["input_label"],
+            "category": cat,
+        })
+    return list(categories.values())
+
+
+class RunRequest(BaseModel):
+    template_id: str
+    user_input: str
+
+
+def _execute_run(run_id: str, template_id: str, user_input: str):
+    db = get_db()
+    try:
+        outputs = run_crew(template_id, user_input)
+        db.table("automation_runs").update(
+            {"status": "completed", "result": outputs}
+        ).eq("id", run_id).execute()
+    except Exception as exc:
+        db.table("automation_runs").update(
+            {"status": "failed", "error": str(exc)}
+        ).eq("id", run_id).execute()
+
+
+@app.post("/automation/run", status_code=202)
+async def start_run(
+    req: RunRequest,
+    bg: BackgroundTasks,
+    biz: dict = Depends(require_admin),
+):
+    if req.template_id not in TEMPLATES:
+        raise HTTPException(400, f"Unknown template: {req.template_id}")
+
+    db = get_db()
+    res = db.table("automation_runs").insert({
+        "business_id": biz["id"],
+        "template_id": req.template_id,
+        "template_name": TEMPLATES[req.template_id]["name"],
+        "user_input": req.user_input,
+        "status": "running",
+    }).execute()
+    run_id = res.data[0]["id"]
+
+    bg.add_task(_execute_run, run_id, req.template_id, req.user_input)
+    return {"run_id": run_id, "status": "running"}
+
+
+@app.get("/automation/runs")
+async def list_runs(biz: dict = Depends(require_admin)):
+    db = get_db()
+    res = (
+        db.table("automation_runs")
+        .select("id, template_id, template_name, user_input, status, created_at")
+        .eq("business_id", biz["id"])
+        .order("created_at", desc=True)
+        .limit(50)
+        .execute()
+    )
+    return res.data
+
+
+@app.get("/automation/runs/{run_id}")
+async def get_run(run_id: str, biz: dict = Depends(require_admin)):
+    db = get_db()
+    res = (
+        db.table("automation_runs")
+        .select("*")
+        .eq("id", run_id)
+        .eq("business_id", biz["id"])
+        .limit(1)
+        .execute()
+    )
+    if not res.data:
+        raise HTTPException(404, "Run not found")
+    return res.data[0]
+
+
+# ── Workflows / LangGraph ─────────────────────────────────────────────────
+
+@app.get("/workflows/graph")
+async def get_workflow_graph(_: dict = Depends(require_admin)):
+    return {
+        "nodes": [
+            {"id": "retrieve",          "label": "Retrieve Context", "type": "rag",      "description": "FAISS vector search on KB"},
+            {"id": "check_escalation",  "label": "Check Escalation", "type": "decision", "description": "Keyword escalation detection"},
+            {"id": "generate",          "label": "Generate Response", "type": "llm",      "description": "LLM via OpenRouter"},
+            {"id": "__end__",           "label": "End",              "type": "end",       "description": "Workflow complete"},
+        ],
+        "edges": [
+            {"from": "retrieve",         "to": "check_escalation"},
+            {"from": "check_escalation", "to": "generate"},
+            {"from": "generate",         "to": "__end__"},
+        ],
+        "state_schema": ["messages", "user_input", "retrieved_context", "response", "escalate", "system_prompt", "business_id", "session_id"],
+    }
+
+
+@app.get("/workflows/stats")
+async def get_workflow_stats(biz: dict = Depends(require_admin)):
+    from agent import _index_cache
+    biz_id = biz["id"]
+    db = get_db()
+
+    convs = (
+        db.table("conversations")
+        .select("id, session_id, messages, escalated, created_at")
+        .eq("business_id", biz_id)
+        .order("created_at", desc=True)
+        .limit(50)
+        .execute()
+        .data or []
+    )
+    kb_res = db.table("kb_files").select("id, filename").eq("business_id", biz_id).execute().data or []
+
+    total_runs = sum(max(len(c.get("messages") or [], 0) // 2, 0) for c in convs)
+    escalated  = sum(1 for c in convs if c.get("escalated"))
+
+    return {
+        "total_workflow_runs":  total_runs,
+        "total_conversations":  len(convs),
+        "escalated_count":      escalated,
+        "escalation_rate":      round(escalated / len(convs) * 100, 1) if convs else 0,
+        "rag_index_loaded":     biz_id in _index_cache,
+        "kb_files":             len(kb_res),
+        "kb_filenames":         [f["filename"] for f in kb_res],
+        "recent_traces": [
+            {
+                "session_id":       c["session_id"],
+                "message_count":    max(len(c.get("messages") or [], 0) // 2, 0),
+                "escalated":        c.get("escalated", False),
+                "created_at":       c["created_at"],
+                "nodes_traversed":  ["retrieve", "check_escalation", "generate"],
+            }
+            for c in convs[:10]
+        ],
+    }
 
 
 # ── Analytics (admin) ──────────────────────────────────────────────────────

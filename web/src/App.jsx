@@ -494,23 +494,58 @@ function LessonPage({ lesson }) {
 function AgentsPage() {
   const [query, setQuery] = useState("");
   const [framework, setFramework] = useState("all");
+  const [category, setCategory] = useState("all");
+
   const frameworks = ["all", ...new Set(catalog.agents.map((agent) => slugify(agent.framework)))];
-  const agents = catalog.agents.filter(
-    (agent) =>
-      matchesQuery(agent, query) &&
-      (framework === "all" || slugify(agent.framework) === framework),
-  );
+  const categories = [
+    "all",
+    "Sales & CRM",
+    "Operations & Strategy",
+    "Software Engineering",
+    "Marketing & Content",
+    "Finance & Crypto",
+    "Healthcare",
+    "E-Commerce",
+    "Legal & Real Estate",
+    "Education & Research",
+    "Data Science & AI",
+    "Productivity & Design",
+    "Cybersecurity",
+    "Supply Chain & Logistics",
+    "HR & Recruitment",
+  ];
+
+  const agents = catalog.agents.filter((agent) => {
+    const matchesSearch = matchesQuery(agent, query);
+    const matchesFw = framework === "all" || slugify(agent.framework) === framework;
+    const matchesCat =
+      category === "all" ||
+      (agent.industry && agent.industry.toLowerCase().includes(category.toLowerCase())) ||
+      (agent.title && agent.title.toLowerCase().includes(category.toLowerCase())) ||
+      (agent.description && agent.description.toLowerCase().includes(category.toLowerCase()));
+    return matchesSearch && matchesFw && matchesCat;
+  });
 
   return (
     <>
       <PageHero
         eyebrow="Runnable agents"
         title="Local code pages for every implementation"
-        description="Each agent page explains the framework, setup, run commands, architecture, and code structure from the files in agents/."
+        description="Filter and discover 500+ specialized AI agent implementations by Category, Industry, and Framework."
         icon={Code2}
       />
-      <CatalogToolbar query={query} onQuery={setQuery} filters={frameworks} filter={framework} onFilter={setFramework} />
+      <CatalogToolbar
+        query={query}
+        onQuery={setQuery}
+        filters={frameworks}
+        filter={framework}
+        onFilter={setFramework}
+        categories={categories}
+        category={category}
+        onCategory={setCategory}
+      />
       <section className="content-band">
+        <div className="catalog-count">{agents.length} matching agents</div>
         <div className="card-grid">
           {agents.map((agent) => (
             <AgentCard agent={agent} key={agent.id} />
@@ -644,22 +679,56 @@ function FlowTrace({ agent }) {
 function UseCasesPage() {
   const [query, setQuery] = useState("");
   const [framework, setFramework] = useState("all");
+  const [category, setCategory] = useState("all");
+
   const frameworks = ["all", ...new Set(catalog.useCases.map((item) => slugify(item.framework)))];
-  const useCases = catalog.useCases.filter(
-    (item) =>
-      matchesQuery(item, query) &&
-      (framework === "all" || slugify(item.framework) === framework),
-  );
+  const categories = [
+    "all",
+    "Sales & CRM",
+    "Operations & Strategy",
+    "Software Engineering",
+    "Marketing & Content",
+    "Finance & Crypto",
+    "Healthcare",
+    "E-Commerce",
+    "Legal & Real Estate",
+    "Education & Research",
+    "Data Science & AI",
+    "Productivity & Design",
+    "Cybersecurity",
+    "Supply Chain & Logistics",
+    "HR & Recruitment",
+  ];
+
+  const useCases = catalog.useCases.filter((item) => {
+    const matchesSearch = matchesQuery(item, query);
+    const matchesFw = framework === "all" || slugify(item.framework) === framework;
+    const matchesCat =
+      category === "all" ||
+      (item.industry && item.industry.toLowerCase().includes(category.toLowerCase())) ||
+      (item.title && item.title.toLowerCase().includes(category.toLowerCase())) ||
+      (item.description && item.description.toLowerCase().includes(category.toLowerCase()));
+    return matchesSearch && matchesFw && matchesCat;
+  });
 
   return (
     <>
       <PageHero
         eyebrow="README catalog"
         title="Dedicated page for every README use case"
-        description="The catalog is parsed from the repository README tables, so each external project gets a page, source section, and redirect route."
+        description="Filter and search 500+ agent use cases organized by Category, Industry, and Framework."
         icon={Boxes}
       />
-      <CatalogToolbar query={query} onQuery={setQuery} filters={frameworks} filter={framework} onFilter={setFramework} />
+      <CatalogToolbar
+        query={query}
+        onQuery={setQuery}
+        filters={frameworks}
+        filter={framework}
+        onFilter={setFramework}
+        categories={categories}
+        category={category}
+        onCategory={setCategory}
+      />
       <section className="content-band">
         <div className="catalog-count">{useCases.length} matching use cases</div>
         <div className="usecase-grid">
@@ -669,6 +738,70 @@ function UseCasesPage() {
         </div>
       </section>
     </>
+  );
+}
+
+function CatalogToolbar({
+  query,
+  onQuery,
+  filters,
+  filter,
+  onFilter,
+  categories,
+  category,
+  onCategory,
+}) {
+  return (
+    <section className="catalog-toolbar">
+      <label className="search-box">
+        <Search size={18} aria-hidden="true" />
+        <input
+          value={query}
+          onChange={(event) => onQuery(event.target.value)}
+          placeholder="Search 500+ agents by keyword, niche, or title..."
+        />
+      </label>
+
+      {categories && categories.length > 1 ? (
+        <div className="category-filter-section">
+          <div className="filter-header">
+            <Filter size={16} aria-hidden="true" />
+            <span>Filter by Industry Category:</span>
+          </div>
+          <div className="category-pills-container">
+            {categories.map((cat) => (
+              <button
+                className={category === cat ? "category-pill active" : "category-pill"}
+                onClick={() => onCategory(cat)}
+                type="button"
+                key={cat}
+              >
+                {cat === "all" ? "All Categories" : cat}
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : null}
+
+      <div className="framework-filter-section">
+        <div className="filter-header">
+          <Workflow size={16} aria-hidden="true" />
+          <span>Filter by Framework:</span>
+        </div>
+        <div className="filter-row" aria-label="Framework filter">
+          {filters.map((item) => (
+            <button
+              className={filter === item ? "active" : ""}
+              onClick={() => onFilter(item)}
+              type="button"
+              key={item}
+            >
+              {item === "all" ? "All Frameworks" : catalog.frameworks.find((fw) => fw.slug === item)?.name || item}
+            </button>
+          ))}
+        </div>
+      </div>
+    </section>
   );
 }
 
@@ -852,33 +985,7 @@ function FrameworksPage({ frameworkSlug }) {
   );
 }
 
-function CatalogToolbar({ query, onQuery, filters, filter, onFilter }) {
-  return (
-    <section className="catalog-toolbar">
-      <label className="search-box">
-        <Search size={18} aria-hidden="true" />
-        <input
-          value={query}
-          onChange={(event) => onQuery(event.target.value)}
-          placeholder="Search catalog"
-        />
-      </label>
-      <div className="filter-row" aria-label="Framework filter">
-        <Filter size={17} aria-hidden="true" />
-        {filters.map((item) => (
-          <button
-            className={filter === item ? "active" : ""}
-            onClick={() => onFilter(item)}
-            type="button"
-            key={item}
-          >
-            {item === "all" ? "All" : catalog.frameworks.find((fw) => fw.slug === item)?.name || item}
-          </button>
-        ))}
-      </div>
-    </section>
-  );
-}
+
 
 function PageHero({ eyebrow, title, description, icon: Icon, action }) {
   return (

@@ -5,12 +5,17 @@ Adapted from agents/13-customer-support-agent/agent.py.
 
 from typing import Annotated, TypedDict
 
+import os
+
 from langchain_community.vectorstores import FAISS
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
-from langchain_openai import ChatOpenAI, OpenAIEmbeddings
+from langchain_openai import ChatOpenAI
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langgraph.graph import END, StateGraph
 from langgraph.graph.message import add_messages
+
+_OPENROUTER_BASE = "https://openrouter.ai/api/v1"
+_LLM_MODEL = os.environ.get("LLM_MODEL", "openai/gpt-4o-mini")
 
 ESCALATION_KEYWORDS = [
     "refund", "lawsuit", "furious", "fraud", "broken",
@@ -20,6 +25,28 @@ ESCALATION_KEYWORDS = [
 
 _index_cache: dict[str, FAISS] = {}
 _graph = None
+_embed_model = None
+
+
+class _FastEmbedDirect:
+    """Bypass the broken langchain FastEmbedEmbeddings pydantic wrapper."""
+
+    def __init__(self):
+        from fastembed import TextEmbedding
+        self._fe = TextEmbedding("BAAI/bge-small-en-v1.5")
+
+    def embed_documents(self, texts: list[str]) -> list[list[float]]:
+        return [v.tolist() for v in self._fe.embed(texts)]
+
+    def embed_query(self, text: str) -> list[float]:
+        return next(self._fe.embed([text])).tolist()
+
+
+def _get_embeddings():
+    global _embed_model
+    if _embed_model is None:
+        _embed_model = _FastEmbedDirect()
+    return _embed_model
 
 
 class SupportState(TypedDict):
@@ -39,7 +66,7 @@ def build_index(business_id: str, texts: list[str]) -> None:
         return
     splitter = RecursiveCharacterTextSplitter(chunk_size=200, chunk_overlap=20)
     docs = splitter.create_documents(texts)
-    _index_cache[business_id] = FAISS.from_documents(docs, OpenAIEmbeddings())
+    _index_cache[business_id] = FAISS.from_documents(docs, _get_embeddings())
 
 
 def has_index(business_id: str) -> bool:
@@ -70,7 +97,12 @@ def _generate(state: SupportState) -> dict:
             "messages": [],
         }
 
-    llm = ChatOpenAI(model="gpt-4o-mini", temperature=0.2)
+    llm = ChatOpenAI(
+        model=_LLM_MODEL,
+        temperature=0.2,
+        base_url=_OPENROUTER_BASE,
+        api_key=os.environ["OPENROUTER_API_KEY"],
+    )
     msgs = [
         SystemMessage(content=(
             f"{state['system_prompt']}\n\n"
@@ -89,11 +121,11 @@ def _get_graph():
     if _graph is None:
         g = StateGraph(SupportState)
         g.add_node("retrieve", _retrieve)
-        g.add_node("escalate", _check_escalation)
+        g.add_node("check_escalation", _check_escalation)
         g.add_node("generate", _generate)
         g.set_entry_point("retrieve")
-        g.add_edge("retrieve", "escalate")
-        g.add_edge("escalate", "generate")
+        g.add_edge("retrieve", "check_escalation")
+        g.add_edge("check_escalation", "generate")
         g.add_edge("generate", END)
         _graph = g.compile()
     return _graph
